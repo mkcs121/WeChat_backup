@@ -1,0 +1,154 @@
+# 网盘 / 本地 操作类
+
+
+# 天翼云盘账号密码登录
+TianYiLogin(){
+[[ ! -d "${sh_path}/cookie/" ]] && mkdir -p "${sh_path}/cookie/"
+referer=`curl -k -i "https://cloud.189.cn/api/portal/loginUrl.action?redirectURL=https%3A%2F%2Fcloud.189.cn%2Fweb%2Fredirect.html" -s | grep 'location: ' | awk '{print $2}' | xargs echo`
+login_html=`curl -k -c "/data/media/0/WeChat_tmp/cookie.txt" "$referer" -s`
+lt=`cut_string "$login_html" 'varlt="' '"'`
+captchatoken=`cut_string "$login_html" "captchaToken'value='" "'"`
+paramid=`cut_string "$login_html" 'varparamId="' '"'`
+if [[ $needcaptcha == 1 ]];then
+cut_login_html=`cut_string "$login_html" "document.getElementById('cimg_sms').src='/api/logbox/oauth2/picCaptcha.do?" "}"`
+token=`cut_string "$cut_login_html" 'token=' '&REQID'`
+REQID=`cut_string "$cut_login_html" '&REQID=' '&rnd'`
+rnd=`date +%s%N | cut -c -13`
+curl -k -H "Referer:${referer}" "https://open.e.189.cn/api/logbox/oauth2/picCaptcha.do?token=${token}&REQID=${REQID}&rnd=${rnd}" -s -o "/data/media/0/WeChat_tmp/code.png"
+code=`curl -k -s -F "imgfile=@/data/media/0/WeChat_tmp/code.png" "http://api.95man.com:8888/api/Http/Recog?Taken=${taken}&imgtype=png&len=4"`
+echo "识别图片验证码中......"
+code_state=${code%%'|'*}
+[[ $code_state -le 0 ]] && echo "无法识别图片验证码，请尝试更换Taken" && RmTmpExit
+echo "识别图片验证码成功"
+code_value=`cut_string "$code" '|' '|'`
+fi
+login_state=`curl -k -H "lt:${lt}" -H "Content-Type:application/x-www-form-urlencoded; charset=UTF-8" -H "Accept:application/json, text/javascript, */*; q=0.01" -H "Referer:${referer}" -b "/data/media/0/WeChat_tmp/cookie.txt" -d "appKey=cloud&accountType=01&userName=%7BRSA%7D${final_username}&password=%7BRSA%7D${final_password}&validateCode=${code_value}&captchaToken=${captchatoken}&returnUrl=https%3A%2F%2Fcloud.189.cn%2Fapi%2Fportal%2FcallbackUnify.action%3FredirectURL%3Dhttps%253A%252F%252Fcloud.189.cn%252Fweb%252Fredirect.html&mailSuffix=%40189.cn&dynamicCheck=FALSE&clientType=1&cb_SaveName=1&isOauth2=false&state=&paramId=${paramid}" "https://open.e.189.cn/api/logbox/oauth2/loginSubmit.do" -s`
+if [[ $login_state == *'"result":0,'* ]];then
+echo "登陆天翼云盘成功"
+login_successlink=`cut_string "$login_state" 'toUrl":"https://' '"'`
+sessionkey=`curl -s -k -c "${sh_path}/cookie/TianYiCookie.txt" "https://${login_successlink}"`
+sessionkey=`curl -s -k -b "${sh_path}/cookie/TianYiCookie.txt" "https://cloud.189.cn/api/portal/v2/getUserBriefInfo.action?noCache=0.37705984566554873"`
+getSessionkeyState=`ReadJson "$sessionkey" 'res_code'`
+[[ "$getSessionkeyState" != "0" ]] && echo -e "获取天翼云盘上传所需Sessionkey失败！您可以自行查找原因或截图此界面私信 酷安@搓澡君\n${sessionkey}" && RmTmpExit
+sessionkey=`ReadJson "$sessionkey" 'sessionKey'`
+echo "获取天翼云盘sessionKey成功"
+elif [[ $login_state == *'"result":-2,'* ]];then
+need_code_times=$(($need_code_times+1)) && echo "图片验证码错误！准备开始重新识别......"
+[[ $need_code_times == 4 ]] && echo "图片验证码识别错误次数过多，请稍后再试" && RmTmpExit
+TianYiLogin
+else
+echo -e "\n登陆失败！错误返回信息如下 ： \n" && echo "$login_state" && RmTmpExit
+fi
+}
+
+# 天翼云盘Cookie登录
+CookieOrPwd(){
+echo -e "\n登陆天翼云盘中......"
+if [[ -e "${sh_path}/cookie/TianYiCookie.txt" ]];then
+sessionkey=`curl -s -k -b "${sh_path}/cookie/TianYiCookie.txt" "https://cloud.189.cn/api/portal/v2/getUserBriefInfo.action?noCache=0.37705984566554873"`
+getSessionkeyState=`ReadJson "$sessionkey" 'res_code'`
+if [[ "$getSessionkeyState" == "0" ]];then echo "使用 Cookie 登陆成功！" && sessionkey=`ReadJson "$sessionkey" 'sessionKey'` && echo "获取天翼云盘sessionKey成功"; else rm -rf "${sh_path}/cookie/TianYiCookie.txt" && echo "使用 Cookie 登陆天翼云盘失败！将尝试使用 用户名+密码 登陆......" && CookieOrPwd;fi
+else
+final_username=`echo -n "$username" | openssl rsautl -encrypt -inkey "${sh_path}/command/TYRSA.pem" -pubin | xxd -p | tr -d "\n" | tr -d ' ' `
+[[ -z `echo $final_username | grep -E '[0-9a-z]{250}'` ]] && echo "RSA加密用户名失败！您可以自行查找原因或截图此界面私信 酷安@搓澡君\n" && echo $rsa_username && RmTmpExit
+echo "RSA加密用户名完成"
+final_password=`echo -n "$password" | openssl rsautl -encrypt -inkey "${sh_path}/command/TYRSA.pem" -pubin | xxd -p | tr -d "\n" | tr -d ' ' `
+[[ -z `echo $final_password | grep -E '[0-9a-z]{250}'` ]] && echo "RSA加密密码失败！您可以自行查找原因或截图此界面私信 酷安@搓澡君\n" && echo $rsa_password && RmTmpExit
+echo "RSA加密密码完成"
+needcaptcha=`curl -k -b "/data/media/0/WeChat_tmp/cookie.txt" -d "accountType=01&userName=%7BRSA%7D${final_username}&appKey=cloud" "https://open.e.189.cn/api/logbox/oauth2/needcaptcha.do" -s`
+[[ $needcaptcha == 1 ]] && echo "需要图片验证码" && need_code_times=0
+TianYiLogin
+fi
+}
+
+# 天翼云盘创建文件夹
+TYCreateDir(){
+NewDir=`curl -k -b "${sh_path}/cookie/TianYiCookie.txt" -H "accept:application/json;charset=UTF-8" -d 'parentFolderId='${2}'&folderName='${1}'' "https://cloud.189.cn/api/open/file/createFolder.action" -s`
+[[ `ReadJson "$NewDir" 'res_code'` != "0" ]] && echo "在天翼云盘创建文件夹失败！请在网络稳定的情况下重试或尝试更换其他备份网盘~\n" && RmTmpExit
+}
+
+# 天翼云盘上传
+TianYiUpload(){
+for zipFiles in `ls "/data/media/0/WeChat_tmp/" | grep -E "$1*" ` ; do
+echo "${zipFiles} 上传中......"
+fname=`echo "$zipFiles" | tr ':' '.'`
+upload=`curl -k -F "sessionKey=${sessionkey}" -F "parentId=$2" -F "albumIdi=undefined" -F "opertype=5" -F "fname=${fname}" -F "Filedata=@/data/media/0/WeChat_tmp/${zipFiles}" "https://hn02.upload.cloud.189.cn/v1/DCIWebUploadAction" --progress-bar`
+[[ $upload != *"createDate"* ]] && echo "上传失败！您可以自行查找原因或截图此界面私信 酷安@搓澡君\n" && echo $upload && RmTmpExit || echo "上传成功！"
+done
+}
+
+
+
+# 阿里云盘登录
+AliLogin(){
+echo "登陆阿里云盘中......"
+if [[ -n `echo "$AliRefreshToken" | grep -E [0-9a-z]{32}` ]];then
+oldRefreshToken="$AliRefreshToken"
+else
+oldRefreshToken=`sqlcipher "/data/user/0/com.alicloud.databox/databases/0.db" << EOF
+select refresh_token from tb_user_info;
+.exit
+EOF`
+[[ -z `echo "$oldRefreshToken" | grep -E '[0-9a-z]{32}'` ]] && echo -e "\n从本机阿里云盘app中获取RefreshToken失败！无法登陆阿里云盘！请尝试在本机阿里云盘app中重新登录账号 或 在脚本配置区中手动输入AliRefreshToken \n" && RmTmpExit ;fi
+LoginMessage=`curl -k -H "content-type:application/json;charset=UTF-8" -d '{"grant_type":"refresh_token","refresh_token":"'$oldRefreshToken'"}' "https://auth.aliyundrive.com/v2/account/token" -s`
+[[ -z `echo "$LoginMessage" | grep 'access_token'` ]] && echo -e "\nRefreshToken失效！无法登陆阿里云盘！请尝试在本机阿里云盘app中重新登录账号 或 在脚本配置区中重新输入AliRefreshToken \n" && RmTmpExit || echo "登陆成功！"
+Authorization=`ReadJson "$LoginMessage" 'access_token'`
+DriveId=`ReadJson "$LoginMessage" 'default_drive_id'`
+}
+
+# 阿里云盘创建文件夹
+AliCreateDir(){
+NewDir=`curl -k -s -H "accept:application/json, text/plain, */*" -H "authorization:${Authorization}" -H "content-type:application/json;charset=UTF-8" -d '{"drive_id":"'${DriveId}'","parent_file_id":"'${2}'","name":"'${1}'","type":"folder","check_name_mode":"refuse"}' "https://api.aliyundrive.com/v2/file/create"`
+[[ `ReadJson "$NewDir" 'type'` != "folder" ]] && echo "在阿里云盘创建文件夹失败！请在网络稳定的情况下重试或尝试更换其他备份网盘~\n" && RmTmpExit
+}
+
+# 阿里云盘上传
+AliUpload(){
+[[ -z `ls "/data/media/0/WeChat_tmp/" | grep -E "$1*"` ]] && echo "您的备份文件不存在！请检查备份过程是否正常！" && RmTmpExit
+for zipFiles in `ls "/data/media/0/WeChat_tmp/" | grep -E "$1*" ` ;do
+echo "${zipFiles} 上传中......"
+FilesSize=`ls -l "/data/media/0/WeChat_tmp/${zipFiles}" | awk '{print $5}'`
+if [[ $FilesSize == 0 ]] || [[ -z $FilesSize ]];then echo "您的备份文件异常！请检查备份过程是否正常！" && RmTmpExit; fi
+FilesSha1=`sha1sum "/data/media/0/WeChat_tmp/${zipFiles}" | awk '{print $1}' | tr ['a-z'] ['A-Z']`
+rm -rf /data/media/0/WeChat_tmp/SplitFiles && mkdir -p /data/media/0/WeChat_tmp/SplitFiles
+cd /data/media/0/WeChat_tmp/SplitFiles && split -a 6 -b 10m "/data/media/0/WeChat_tmp/${zipFiles}" tmp
+SplitFileNumber=`ls -l /data/media/0/WeChat_tmp/SplitFiles | grep "^-" | wc -l`
+[[ $SplitFileNumber == 0 ]] && echo "您的备份文件分割失败！无法上传！" && RmTmpExit
+PartNumber=1 && unset -v part_number
+while [[ $PartNumber -le $SplitFileNumber ]];do part_number[$PartNumber]='{"part_number":'${PartNumber}'}' ; let PartNumber++ ;done
+part_number=`echo ${part_number[@]} | tr ' ' ','`
+UploadMessage=`curl -k -s -H "accept:application/json, text/plain, */*" -H "authorization:${Authorization}" -H "content-type:application/json;charset=UTF-8" -d '{"name":"'${zipFiles}'","type":"file","content_type":"application/octet-stream","size":'${FilesSize}',"drive_id":"'${DriveId}'","parent_file_id":"'${2}'","part_info_list":['${part_number}'],"content_hash_name":"sha1","content_hash":"'${FilesSha1}'","ignoreError":false,"check_name_mode":"refuse"}' "https://api.aliyundrive.com/v2/file/create"`
+if [[ `ReadJson "$UploadMessage" 'rapid_upload'` != 'true' ]];then
+UploadUrl=`ReadJson "$UploadMessage" 'upload_url'`
+UploadFileArray=(`ls /data/media/0/WeChat_tmp/SplitFiles`) && UploadFileTimes=0 && unset -v CompleteList
+for url in $UploadUrl ;do
+echo -en "\b\b\b\b"`echo $UploadFileTimes*100/$SplitFileNumber | bc `'%'
+BlockUpload(){
+unset UploadState
+UploadState=`curl -k -sIL -w "%{http_code}\n" -o /dev/null -H "Expect:" -H "User-Agent:" -H "Content-Type:" -H "Connection:" -T "/data/media/0/WeChat_tmp/SplitFiles/${UploadFileArray[$UploadFileTimes]}" "$url"` ;}
+BlockUpload ; u=0 ; while [[ $UploadState != 200 ]] && [[ $u -lt 3 ]];do BlockUpload ; let u++ ;done
+[[ $UploadState != 200 ]] && echo -e "\n${zipFiles} 上传失败！中止上传！请切换网络环境后重试！" && RmTmpExit
+let UploadFileTimes++
+echo -en "\b\b\b\b"`echo $UploadFileTimes*100/$SplitFileNumber | bc `'%'
+done
+FileId=`ReadJson "$UploadMessage" 'file_id'`
+UploadId=`ReadJson "$UploadMessage" 'upload_id'`
+Complete=`curl -k -s -H "accept:application/json, text/plain, */*" -H "authorization:${Authorization}" -H "content-type:application/json;charset=UTF-8" -d '{"ignoreError":true,"drive_id":"'${DriveId}'","file_id":"'${FileId}'","upload_id":"'${UploadId}'","part_info_list":[]}' "https://api.aliyundrive.com/v2/file/complete"`
+[[ -z `echo "$Complete" | grep '"status":"available"'` ]] && echo -e "\n${zipFiles} 上传失败！中止上传！您可以自行查找原因或截图此界面私信 酷安@搓澡君\n错误详细如下：\n\n获取上传链接返回 : ${UploadMessage}\n保存文件返回 ： ${Complete}" && RmTmpExit
+else echo -n "100%" ;fi
+echo -e "\n上传成功！"
+done
+}
+
+# 本地移动
+LocalMove(){
+for zipFiles in `ls "/data/media/0/WeChat_tmp/" | grep -E "$1*" ` ; do
+unset mvState
+mv -f "/data/media/0/WeChat_tmp/${zipFiles}" "$2" && mvState=1
+[[ $mvState != 1 ]] && echo "移动备份文件失败！您可以自行查找原因或截图此界面私信 酷安@搓澡君\n" && RmTmpExit
+done
+restorecon -R "$store_path" >> /dev/null 2>&1
+chown -R root:everybody "$store_path" >> /dev/null 2>&1
+chmod -R 0777 "$store_path" >> /dev/null 2>&1
+}
+
