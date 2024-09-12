@@ -32,7 +32,7 @@ A : 大部分错误都加了提示与解决办法，请按提示操作即可，�
 
 
 Q : 如何进行定时运行脚本？
-A : 您可以通过软件Xposed edge（需要xposed框架与root权限）或软件tasker（需要root权限）进行定时备份，详细操作步骤请见https://czj.lanzoux.com/b0evzleqh中的 "tasker_or_edge食用方法.zip" 。
+A : 您可以通过软件Xposed edge（需要xposed框架与root权限）或软件tasker（需要root权限）进行定时备份，详细操作步骤请见 https://czj.lanzoux.com/b0evzleqh 中的 "tasker_or_edge食用方法.zip" 。
 
 
 Q : 在xposed edge或tasker里执行脚本都提示No such file or directory ？
